@@ -2,16 +2,17 @@ import discord
 from discord.ext import commands
 from discord.ui import Button, View
 import asyncio
-import json
 import time
 import random
+import config as c
+
+AppConfig_obj = c.AppConfig()
+giveaway_banner = AppConfig_obj.get_giveaway_banner()
 
 class Giveaways(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.active_giveaway = None
-        with open("config.json") as f:
-            self.config = json.load(f)
 
     def parse_duration(self, duration):
         units = {'s': 1, 'm': 60, 'h': 3600, 'd': 86400}
@@ -38,7 +39,7 @@ class Giveaways(commands.Cog):
             return
 
         end_time = int(time.time()) + seconds
-        banner_url = self.config.get("giveaway_banner")
+        banner_url = giveaway_banner
         entries = []
 
         embed = discord.Embed(
@@ -60,6 +61,7 @@ class Giveaways(commands.Cog):
 
             # Join Button
             join_button = Button(label="Enter", style=discord.ButtonStyle.green)
+
             async def join_callback(interaction: discord.Interaction):
                 if interaction.user.id in entries:
                     await interaction.response.send_message("You’ve already entered!", ephemeral=True)
@@ -68,6 +70,7 @@ class Giveaways(commands.Cog):
                     await interaction.response.send_message("You joined the giveaway!", ephemeral=True)
                     await update_buttons()
                     await message.edit(view=view)
+
             join_button.callback = join_callback
             view.add_item(join_button)
 
@@ -148,6 +151,7 @@ class Giveaways(commands.Cog):
         self.active_giveaway["view"].stop()
         self.active_giveaway = None
         await ctx.send("The giveaway has been cancelled.")
+
 
 async def setup(bot):
     await bot.add_cog(Giveaways(bot))

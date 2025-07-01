@@ -3,26 +3,25 @@ from discord.ext import commands, tasks
 import json
 import asyncio
 from datetime import datetime, timedelta
+import config as c
+
+AppConfig_obj = c.AppConfig()
+modlog_channel = int(AppConfig_obj.get_modlog_channel())
 
 class Moderation(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.warn_data = {}
-        self.load_config()
         self.load_warns()
         self.expire_warns.start()
 
-    def load_config(self):
-        with open("config.json") as f:
-            self.config = json.load(f)
-
     def save_warns(self):
-        with open("warns.json", "w") as f:
+        with open("../warns.json", "w") as f:
             json.dump(self.warn_data, f, indent=2)
 
     def load_warns(self):
         try:
-            with open("warns.json") as f:
+            with open("../warns.json") as f:
                 self.warn_data = json.load(f)
         except:
             self.warn_data = {}
@@ -43,7 +42,7 @@ class Moderation(commands.Cog):
             self.save_warns()
 
     async def send_modlog(self, ctx, action, target, reason, duration=None):
-        channel = self.bot.get_channel(self.config.get("modlog_channel_id"))
+        channel = self.bot.get_channel(modlog_channel)
         if not channel:
             return
         embed = discord.Embed(title="Moderation Action", color=discord.Color.red())

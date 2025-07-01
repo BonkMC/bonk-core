@@ -3,8 +3,10 @@ from discord.ext import commands
 import random
 import json
 import aiohttp
+import config as c
 
-ALLOWED_CHANNEL = 1310626256760475659
+AppConfig_obj = c.AppConfig()
+ALLOWED_CHANNEL = int(AppConfig_obj.get_allowed_channel())
 
 class Fun(commands.Cog):
     def __init__(self, bot):
