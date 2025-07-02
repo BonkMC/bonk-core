@@ -4,40 +4,51 @@ import json
 import asyncio
 from datetime import datetime, timedelta
 import config as c
+import os
 
 AppConfig_obj = c.AppConfig()
 modlog_channel = int(AppConfig_obj.get_modlog_channel())
+WARNS_FILE = os.path.join(os.path.dirname(__file__), "warns.json")
 
 class Moderation(commands.Cog):
-    def __init__(self, bot):
-        self.bot = bot
-        self.warn_data = {}
-        self.load_warns()
-        self.expire_warns.start()
-
     def save_warns(self):
-        with open("../warns.json", "w") as f:
+        with open(WARNS_FILE, "w") as f:
             json.dump(self.warn_data, f, indent=2)
 
     def load_warns(self):
         try:
-            with open("../warns.json") as f:
+            with open(WARNS_FILE) as f:
                 self.warn_data = json.load(f)
-        except:
+        except FileNotFoundError:
             self.warn_data = {}
+
+    def _expire_user_warns(self, uid: str):
+        now = datetime.utcnow()
+        kept = []
+        for w in self.warn_data.get(uid, []):
+            exp = w.get("expires_at")
+            if exp is None or datetime.fromisoformat(exp) > now:
+                kept.append(w)
+        if kept:
+            self.warn_data[uid] = kept
+        else:
+            self.warn_data.pop(uid, None)
 
     @tasks.loop(minutes=1)
     async def expire_warns(self):
         now = datetime.utcnow()
         changed = False
-        for user_id in list(self.warn_data):
-            self.warn_data[user_id] = [
-                w for w in self.warn_data[user_id]
-                if datetime.fromisoformat(w["timestamp"]) + timedelta(days=7) > now
+        for uid in list(self.warn_data.keys()):
+            original = len(self.warn_data[uid])
+            self.warn_data[uid] = [
+                w for w in self.warn_data[uid]
+                if (w.get("expires_at") is None)
+                   or (datetime.fromisoformat(w["expires_at"]) > now)
             ]
-            if not self.warn_data[user_id]:
-                del self.warn_data[user_id]
-            changed = True
+            if not self.warn_data[uid]:
+                del self.warn_data[uid]
+            if len(self.warn_data.get(uid, [])) != original:
+                changed = True
         if changed:
             self.save_warns()
 
@@ -141,20 +152,44 @@ class Moderation(commands.Cog):
         await ctx.send("User not found in bans.")
 
     @commands.command()
-    @commands.has_permissions(kick_members=True)
-    async def warn(self, ctx, member: discord.Member, *, reason: str = "Unspecified"):
+    @commands.has_permissions(moderate_members=True)
+    async def warn(self, ctx, member: discord.Member, duration: str = None, *, reason: str = "Unspecified"):
         uid = str(member.id)
-        self.warn_data.setdefault(uid, []).append({
+        now = datetime.utcnow()
+
+        self._expire_user_warns(uid)
+
+        entry = {
             "reason": reason,
-            "timestamp": datetime.utcnow().isoformat()
-        })
+            "timestamp": now.isoformat(),
+            "expires_at": None
+        }
+        if duration:
+            secs = self.parse_duration(duration)
+            if secs is None:
+                return await ctx.send("❌ Invalid duration. Use `10s`, `5m`, `2h`, `1d`, etc.")
+            expires = now + timedelta(seconds=secs)
+            entry["expires_at"] = expires.isoformat()
+
+        self.warn_data.setdefault(uid, []).append(entry)
         self.save_warns()
 
-        if len(self.warn_data[uid]) >= 3:
-            self.warn_data[uid] = []
+        total = len(self.warn_data[uid])
+        if total % 3 == 0:
+            self._expire_user_warns(uid)
+            total = len(self.warn_data.get(uid, []))
+
+            sets = total // 3
+            duration_str = f"{sets}d"
+            self.warn_data.pop(uid, None)
             self.save_warns()
-            await ctx.invoke(self.bot.get_command("mute"), member=member, duration="1d", reason="warns limit reached")
-            return
+
+            return await ctx.invoke(
+                self.bot.get_command("mute"),
+                member=member,
+                duration=duration_str,
+                reason="Warns limit reached"
+            )
 
         await self.send_modlog(ctx, "Warn", member, reason)
         await self.send_dm(member, "Warn", None, reason)
